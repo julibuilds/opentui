@@ -1474,7 +1474,7 @@ pub fn findGraphemeInfoSIMD16(
             // Commit previous cluster if it was special (tab or multibyte)
             if (prev_cp != null and (cluster_is_multibyte or cluster_is_tab)) {
                 const cluster_byte_len = pos - cluster_start;
-                try result.append(GraphemeInfo{
+                try result.append(allocator, GraphemeInfo{
                     .byte_offset = @intCast(cluster_start),
                     .byte_len = @intCast(cluster_byte_len),
                     .width = @intCast(cluster_width_state.width),
@@ -1509,7 +1509,7 @@ pub fn findGraphemeInfoSIMD16(
     // Commit final cluster if it was special
     if (prev_cp != null and (cluster_is_multibyte or cluster_is_tab)) {
         const cluster_byte_len = text.len - cluster_start;
-        try result.append(GraphemeInfo{
+        try result.append(allocator, GraphemeInfo{
             .byte_offset = @intCast(cluster_start),
             .byte_len = @intCast(cluster_byte_len),
             .width = @intCast(cluster_width_state.width),
