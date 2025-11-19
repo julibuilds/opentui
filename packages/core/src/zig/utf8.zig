@@ -60,16 +60,18 @@ pub const LineBreak = struct {
 };
 
 pub const LineBreakResult = struct {
-    breaks: std.ArrayList(LineBreak),
+    breaks: std.ArrayListUnmanaged(LineBreak),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) LineBreakResult {
         return .{
-            .breaks = std.ArrayList(LineBreak).init(allocator),
+            .breaks = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *LineBreakResult) void {
-        self.breaks.deinit();
+        self.breaks.deinit(self.allocator);
     }
 
     pub fn reset(self: *LineBreakResult) void {
@@ -78,16 +80,18 @@ pub const LineBreakResult = struct {
 };
 
 pub const TabStopResult = struct {
-    positions: std.ArrayList(usize),
+    positions: std.ArrayListUnmanaged(usize),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) TabStopResult {
         return .{
-            .positions = std.ArrayList(usize).init(allocator),
+            .positions = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *TabStopResult) void {
-        self.positions.deinit();
+        self.positions.deinit(self.allocator);
     }
 
     pub fn reset(self: *TabStopResult) void {
@@ -101,16 +105,18 @@ pub const WrapBreak = struct {
 };
 
 pub const WrapBreakResult = struct {
-    breaks: std.ArrayList(WrapBreak),
+    breaks: std.ArrayListUnmanaged(WrapBreak),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) WrapBreakResult {
         return .{
-            .breaks = std.ArrayList(WrapBreak).init(allocator),
+            .breaks = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *WrapBreakResult) void {
-        self.breaks.deinit();
+        self.breaks.deinit(self.allocator);
     }
 
     pub fn reset(self: *WrapBreakResult) void {
@@ -232,7 +238,7 @@ pub fn findWrapBreaksSIMD16(text: []const u8, result: *WrapBreakResult) !void {
             // Use bit manipulation to extract positions
             while (bitmask != 0) {
                 const bit_pos = @ctz(bitmask);
-                try result.breaks.append(.{
+                try result.breaks.append(result.allocator, .{
                     .byte_offset = @intCast(pos + bit_pos),
                     .char_offset = char_offset + @as(u16, @intCast(bit_pos)),
                 });
@@ -260,7 +266,7 @@ pub fn findWrapBreaksSIMD16(text: []const u8, result: *WrapBreakResult) !void {
                 } else true;
 
                 if (isAsciiWrapBreak(b0)) {
-                    try result.breaks.append(.{
+                    try result.breaks.append(result.allocator, .{
                         .byte_offset = @intCast(pos + i),
                         .char_offset = char_offset,
                     });
@@ -282,7 +288,7 @@ pub fn findWrapBreaksSIMD16(text: []const u8, result: *WrapBreakResult) !void {
                 } else true;
 
                 if (isUnicodeWrapBreak(dec.cp)) {
-                    try result.breaks.append(.{
+                    try result.breaks.append(result.allocator, .{
                         .byte_offset = @intCast(pos + i),
                         .char_offset = char_offset,
                     });
@@ -309,7 +315,7 @@ pub fn findWrapBreaksSIMD16(text: []const u8, result: *WrapBreakResult) !void {
             } else true;
 
             if (isAsciiWrapBreak(b0)) {
-                try result.breaks.append(.{
+                try result.breaks.append(result.allocator, .{
                     .byte_offset = @intCast(i),
                     .char_offset = char_offset,
                 });
@@ -329,7 +335,7 @@ pub fn findWrapBreaksSIMD16(text: []const u8, result: *WrapBreakResult) !void {
             } else true;
 
             if (isUnicodeWrapBreak(dec.cp)) {
-                try result.breaks.append(.{
+                try result.breaks.append(result.allocator, .{
                     .byte_offset = @intCast(i),
                     .char_offset = char_offset,
                 });
@@ -360,7 +366,7 @@ pub fn findTabStopsSIMD16(text: []const u8, result: *TabStopResult) !void {
             var i: usize = 0;
             while (i < vector_len) : (i += 1) {
                 if (text[pos + i] == '\t') {
-                    try result.positions.append(pos + i);
+                    try result.positions.append(result.allocator, pos + i);
                 }
             }
         }
@@ -369,7 +375,7 @@ pub fn findTabStopsSIMD16(text: []const u8, result: *TabStopResult) !void {
 
     while (pos < text.len) : (pos += 1) {
         if (text[pos] == '\t') {
-            try result.positions.append(pos);
+            try result.positions.append(result.allocator, pos);
         }
     }
 }
@@ -407,14 +413,14 @@ pub fn findLineBreaksSIMD16(text: []const u8, result: *LineBreakResult) !void {
                     }
                     // Check if this is part of CRLF
                     const kind: LineBreakKind = if (absolute_index > 0 and text[absolute_index - 1] == '\r') .CRLF else .LF;
-                    try result.breaks.append(.{ .pos = absolute_index, .kind = kind });
+                    try result.breaks.append(result.allocator, .{ .pos = absolute_index, .kind = kind });
                 } else if (b == '\r') {
                     // Check for CRLF
                     if (absolute_index + 1 < text.len and text[absolute_index + 1] == '\n') {
-                        try result.breaks.append(.{ .pos = absolute_index + 1, .kind = .CRLF });
+                        try result.breaks.append(result.allocator, .{ .pos = absolute_index + 1, .kind = .CRLF });
                         i += 1; // Skip the \n in next iteration
                     } else {
-                        try result.breaks.append(.{ .pos = absolute_index, .kind = .CR });
+                        try result.breaks.append(result.allocator, .{ .pos = absolute_index, .kind = .CR });
                     }
                 }
             }
@@ -439,13 +445,13 @@ pub fn findLineBreaksSIMD16(text: []const u8, result: *LineBreakResult) !void {
                 }
             }
             const kind: LineBreakKind = if (pos > 0 and text[pos - 1] == '\r') .CRLF else .LF;
-            try result.breaks.append(.{ .pos = pos, .kind = kind });
+            try result.breaks.append(result.allocator, .{ .pos = pos, .kind = kind });
         } else if (b == '\r') {
             if (pos + 1 < text.len and text[pos + 1] == '\n') {
-                try result.breaks.append(.{ .pos = pos + 1, .kind = .CRLF });
+                try result.breaks.append(result.allocator, .{ .pos = pos + 1, .kind = .CRLF });
                 pos += 1;
             } else {
-                try result.breaks.append(.{ .pos = pos, .kind = .CR });
+                try result.breaks.append(result.allocator, .{ .pos = pos, .kind = .CR });
             }
         }
         prev_was_cr = false;
@@ -1307,16 +1313,18 @@ pub const GraphemeInfo = struct {
 };
 
 pub const GraphemeInfoResult = struct {
-    graphemes: std.ArrayList(GraphemeInfo),
+    graphemes: std.ArrayListUnmanaged(GraphemeInfo),
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) GraphemeInfoResult {
         return .{
-            .graphemes = std.ArrayList(GraphemeInfo).init(allocator),
+            .graphemes = .{},
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *GraphemeInfoResult) void {
-        self.graphemes.deinit();
+        self.graphemes.deinit(self.allocator);
     }
 
     pub fn reset(self: *GraphemeInfoResult) void {
