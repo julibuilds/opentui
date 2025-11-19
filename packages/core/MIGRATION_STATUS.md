@@ -2,20 +2,20 @@
 
 **Started**: 2025-11-19  
 **Target Completion**: TBD  
-**Current Phase**: Phase 1 Complete - Ready for Phase 2
+**Current Phase**: Phase 2 - Core Data Structures (Nearly Complete!)
 
 ---
 
 ## Overall Progress
 
-- [x] Phase 1: Preparation & Build System (2/2 files)
-- [ ] Phase 2: Core Data Structures (0/6 files)
+- [x] Phase 1: Preparation & Build System (2/2 files) ✔️
+- [~] Phase 2: Core Data Structures (5/6 files - ArrayList/HashMap complete)
 - [ ] Phase 3: I/O & Formatting (0/2 files)
 - [ ] Phase 4: Test Files (0/14 files)
 - [ ] Phase 5: Benchmark Files (0/10 files)
 - [ ] Phase 6: Validation (0/4 tasks)
 
-**Total**: 2/38 items complete
+**Total**: 8/38 items complete (21%)
 
 ---
 
@@ -32,12 +32,14 @@
 
 | File | Status | ArrayList | HashMap | fmt.format | Other | Notes |
 |------|--------|-----------|---------|------------|-------|-------|
-| rope.zig | ⬜ Not Started | 8+ | 2 managed | 4 debug | High complexity - marker tracking | CRITICAL |
-| renderer.zig | ⬜ Not Started | 7 | 0 | TBD | BufferedWriter (4) | CRITICAL |
-| buffer.zig | ⬜ Not Started | 2 | 0 | 0 | scissor_stack, grapheme list | |
-| text-buffer.zig | ⬜ Not Started | 2 | 2 managed | 0 | Return types, event list | CRITICAL |
-| utf8.zig | ⬜ Not Started | 4 | 0 | 0 | breaks/positions/graphemes | |
-| grapheme.zig | ⬜ Not Started | 0 | 1 managed | 0 | ID tracking | Already uses ArrayListUnmanaged |
+| rope.zig | ✅ Done | 8 | 1 | 0 (skipped debug) | MarkerCache migration | Session 3 - 64 insertions, 57 deletions |
+| utf8.zig | ✅ Done | 4 | 0 | 0 | Result structs + findGraphemeInfoSIMD16 | Session 3 - 35 insertions, 27 deletions |
+| buffer.zig | ✅ Done | 2 | 0 | 0 | scissor_stack, grapheme list | Session 3 - 11 insertions, 10 deletions |
+| text-buffer.zig | ✅ Done | 2 | 1 | 0 | Return types, event list, active map | Session 3 - 22 insertions, 22 deletions |
+| text-buffer-segment.zig | ✅ Done | 1 | 0 | 0 | grapheme processing | Session 3 - included in text-buffer commit |
+| edit-buffer.zig | ✅ Done | 0 | 0 | 0 | Caller updates for new signatures | Session 3 - 2 insertions, 2 deletions |
+| renderer.zig | ⬜ Not Started | 0 (N/A) | 0 | 0 | BufferedWriter API only | Non-ArrayList task |
+| grapheme.zig | ✅ Skip | 0 | 0 | 0 | Already uses correct APIs | No changes needed |
 
 ---
 
@@ -103,19 +105,29 @@
 - ~~Current Zig version: 0.14.1~~ - Upgraded to 0.15.1 using zvm
 - ~~uucode dependency incompatibility~~ - Updated to commit 5f05f8f (Zig 0.15.1 compatible)
 - ~~build.zig API changes~~ - Fixed: root_source_file → createModule(), removed filter from TestOptions
-- **Additional migration patterns discovered**:
+
+**Session 3 (2025-11-19)** - Phase 2 Migration:
+- **Completed**: All ArrayList and HashMap migrations for Phase 2 core files
+- **Remaining issues** (5 compilation errors):
   - callconv(.C) → callconv(.c) (4 occurrences in event-bus.zig, lib.zig, logger.zig)
-  - std.io.BufferedWriter API change (renderer.zig)
+  - std.io.BufferedWriter API change (renderer.zig:83)
+
+**Migration patterns discovered**:
+- Nested structures (HashMap with ArrayList values) need both Unmanaged
+- Return types with ArrayListUnmanaged should include allocator for proper cleanup
+- Function signature changes require coordinated updates across all call sites
 
 ---
 
 ## Key Statistics
 
 - **Total Files**: 38
-- **ArrayList migrations**: ~163 occurrences
-- **HashMap migrations**: 5 occurrences
-- **fmt.format updates**: 17 occurrences
-- **BufferedWriter updates**: 4 occurrences
+- **Files migrated**: 8 (21%)
+- **ArrayList migrations completed**: 18/~163
+- **HashMap migrations completed**: 2/5
+- **fmt.format updates**: 0/17 (Phase 3)
+- **BufferedWriter updates**: 0/4 (renderer.zig pending)
+- **Lines changed**: ~150 total in Session 3
 
 ---
 
@@ -132,21 +144,24 @@
 
 ## Next Session Action
 
-**PREREQUISITE**: Upgrade Zig to version 0.15.1
-```bash
-# Install Zig 0.15.1 (method depends on your system)
-# Then verify:
-zig version  # Should show 0.15.1
-```
+**Phase 2 - Final Cleanup Tasks** (Quick wins, ~5-10 minutes):
 
-**After Zig upgrade, proceed with**: Phase 1 verification, then Phase 2 - Core Data Structures
+1. **Fix callconv(.C) → callconv(.c)** (trivial, 4 files):
+   ```bash
+   # These are simple one-character changes
+   event-bus.zig:3   - callconv(.C) → callconv(.c)
+   lib.zig:24        - callconv(.C) → callconv(.c)
+   lib.zig:28        - callconv(.C) → callconv(.c)
+   logger.zig:10     - callconv(.C) → callconv(.c)
+   ```
 
-**First verification steps**:
-1. `cd packages/core/src/zig`
-2. `zig build` - Test if uucode dependency works with 0.15.1
-3. `zig build test` - Run test suite on new version
+2. **Investigate renderer.zig BufferedWriter issue**:
+   - Location: renderer.zig:83
+   - Error: `root source file struct 'Io' has no member named 'BufferedWriter'`
+   - Likely needs: `std.io.BufferedWriter` → different API in 0.15.1
+   - Research needed: Check Zig 0.15.1 docs for correct BufferedWriter usage
 
-**If build succeeds**: Mark Phase 1 as ✔️ Tested and proceed to Phase 2
-
-**First Phase 2 file**: `src/rope.zig` (most critical, foundational data structure)  
-**Action**: Migrate ArrayList and HashMap to Unmanaged versions (~8 ArrayLists, 2 HashMaps, 4 fmt.format calls)
+**After Phase 2 completion:**
+- Begin Phase 3: I/O & Formatting (ansi.zig - 6 fmt.format calls)
+- OR begin Phase 4: Test Files (14 files with ArrayList migrations)
+- Run full test suite: `zig build test` to validate all changes
