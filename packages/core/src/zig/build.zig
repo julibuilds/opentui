@@ -10,7 +10,8 @@ const SupportedZigVersion = struct {
 const SUPPORTED_ZIG_VERSIONS = [_]SupportedZigVersion{
     .{ .major = 0, .minor = 14, .patch = 0 },
     .{ .major = 0, .minor = 14, .patch = 1 },
-    // .{ .major = 0, .minor = 15, .patch = 0 },
+    .{ .major = 0, .minor = 15, .patch = 0 },
+    .{ .major = 0, .minor = 15, .patch = 1 },
 };
 
 /// Apply dependencies to a module
@@ -103,14 +104,18 @@ pub fn build(b: *std.Build) void {
 
     // Run tests using the test index file
     const test_exe = b.addTest(.{
-        .root_source_file = b.path("test.zig"),
-        .target = test_target,
-        .filter = b.option([]const u8, "test-filter", "Skip tests that do not match filter"),
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test.zig"),
+            .target = test_target,
+        }),
     });
 
     applyDependencies(b, test_exe.root_module, .Debug, test_target);
 
     const run_test = b.addRunArtifact(test_exe);
+    if (b.option([]const u8, "test-filter", "Skip tests that do not match filter")) |filter| {
+        run_test.setEnvironmentVariable("TEST_FILTER", filter);
+    }
     test_step.dependOn(&run_test.step);
 
     // Add bench step
@@ -123,9 +128,11 @@ pub fn build(b: *std.Build) void {
 
     const bench_exe = b.addExecutable(.{
         .name = "opentui-bench",
-        .root_source_file = b.path("bench.zig"),
-        .target = bench_target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("bench.zig"),
+            .target = bench_target,
+            .optimize = optimize,
+        }),
     });
 
     applyDependencies(b, bench_exe.root_module, optimize, bench_target);
@@ -140,9 +147,11 @@ pub fn build(b: *std.Build) void {
     const debug_step = b.step("debug", "Run debug executable");
     const debug_exe = b.addExecutable(.{
         .name = "opentui-debug",
-        .root_source_file = b.path("debug-view.zig"),
-        .target = test_target,
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("debug-view.zig"),
+            .target = test_target,
+            .optimize = .Debug,
+        }),
     });
 
     applyDependencies(b, debug_exe.root_module, .Debug, test_target);
