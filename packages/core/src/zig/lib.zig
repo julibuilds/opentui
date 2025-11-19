@@ -214,9 +214,8 @@ export fn clearTerminal(rendererPtr: *renderer.CliRenderer) void {
 
 export fn setTerminalTitle(rendererPtr: *renderer.CliRenderer, titlePtr: [*]const u8, titleLen: usize) void {
     const title = titlePtr[0..titleLen];
-    var bufferedWriter = &rendererPtr.stdoutWriter;
-    const writer = bufferedWriter.writer();
-    rendererPtr.terminal.setTerminalTitle(writer.any(), title);
+    const writer = &rendererPtr.stdoutWriter.interface;
+    rendererPtr.terminal.setTerminalTitle(writer, title);
 }
 
 // Buffer functions

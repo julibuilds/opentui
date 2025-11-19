@@ -306,3 +306,181 @@ All ArrayList/HashMap migrations for Phase 2 core files are now COMPLETE!
 - **Files migrated**: 8 (2 in Session 2, 6 in Session 3)
 - **Tests passing**: Not yet run (compilation focus)
 - **Benchmarks passing**: Not yet run
+
+---
+
+## Session 4: 2025-11-19 (Writer API & Managed ArrayList Migration)
+
+### Work Completed
+
+**Phase 2: Final API Migrations** 🔧
+
+Major API changes discovered and partially migrated - Zig 0.15.1 changed several fundamental APIs beyond just ArrayList/HashMap:
+
+- **File**: build.zig.zon ✅
+  - Updated uucode dependency to latest commit (7e7f986) for better 0.15.1 compatibility
+  - Old hash: `uucode-0.1.0-ZZjBPj96QADXyt5sqwBJUnhaDYs_qBeeKijZvlRa0eqM`
+  - New hash: `122076a6479e2c192dc813197fcc95f64338e351933b15e6c7072a0f0b21a42af9a1`
+  - Test result: Builds successfully with Zig 0.15.1
+
+- **File**: renderer.zig 🟡 (Partially Complete)
+  - **BufferedWriter API Migration**:
+    - Removed `std.io.BufferedWriter(4096, std.fs.File.Writer)` type
+    - Added `stdout_buffer: [4096]u8` field to struct
+    - Changed type to `std.fs.File.Writer` (new API uses buffer + writer pattern)
+    - Updated initialization: `file.writer(&buffer)` instead of `BufferedWriter{...}`
+    - Updated all `.writer()` calls → `&stdoutWriter.interface`
+    - Updated all `.flush()` calls → `stdoutWriter.interface.flush()`
+  
+  - **API Changes Fixed**:
+    - `std.io.getStdOut()` → `std.fs.File.stdout()` (function call removed)
+    - `std.time.sleep()` → `std.Thread.sleep()` (moved to Thread namespace)
+    - ArrayList `.deinit()` → `.deinit(allocator)` (even for managed lists in 0.15.1!)
+  
+  - **ArrayList Default Change Discovered**:
+    - In 0.15.1: `std.ArrayList` is now **Unmanaged by default** 🚨
+    - Old: `var list = std.ArrayList(T).init(allocator)`
+    - New: `var list: std.ArrayList(T) = .{}`
+    - Methods now require allocator: `.append(allocator, item)`, `.ensureTotalCapacity(allocator, N)`
+    - This affects ALL remaining test and benchmark files!
+  
+  - Changes made:
+    - 7 StatSample ArrayList initializations changed from `.init(allocator)` to `: .{}`
+    - 7 `.ensureTotalCapacity()` calls updated to include allocator
+    - 13 `.flush()` calls updated to use `.interface.flush()`
+    - All `bufferedWriter.writer()` patterns replaced with `&stdoutWriter.interface`
+  
+  - Test result: Still has compilation errors (8-9 remaining)
+
+- **File**: lib.zig 🟡
+  - Fixed `setTerminalTitle()` to use new Writer API
+  - Changed `bufferedWriter.writer()` → `&stdoutWriter.interface`
+  - Removed `.any()` call (Writer is now concrete, not generic)
+  - Test result: Function compiles
+
+### Migration Insights
+
+**Critical Discovery**: Zig 0.15.1 API changes are more extensive than initially documented:
+
+1. **Writer/Reader Redesign** ("Writergate"):
+   - Writers are no longer generic types - `std.Io.Writer` is a concrete struct
+   - Buffering moved from wrapper types into the writer itself
+   - Pattern: Create buffer → `file.writer(&buffer)` → use `&writer.interface`
+
+2. **ArrayList Semantic Change**:
+   - `std.ArrayList` now means `ArrayListUnmanaged` (huge breaking change!)
+   - For managed lists, must use `std.ArrayListManaged` (not used in this codebase)
+   - All methods require explicit allocator parameter
+   - This explains why "managed" lists still needed allocator in deinit!
+
+3. **Stdlib Reorganization**:
+   - `std.io.getStdOut()` → `std.fs.File.stdout()`
+   - `std.time.sleep()` → `std.Thread.sleep()`
+   - These affect multiple files beyond just renderer.zig
+
+### Issues Encountered
+
+1. **Issue**: uucode dependency still had build.zig errors with first commit
+   - Symptom: `std.Io.Writer.Allocating` API errors in dependency
+   - Root cause: Commit 5f05f8f was from before full 0.15.1 migration
+   - Resolution: Updated to latest commit (7e7f986) from 2025-11-19
+
+2. **Issue**: BufferedWriter API completely changed
+   - Symptom: No `.BufferedWriter` type exists in `std.io`
+   - Root cause: Zig 0.15.1 redesigned I/O with built-in buffering
+   - Resolution: Migrated to `std.fs.File.Writer` with explicit buffer
+   - Impact: Required changes to struct fields, initialization, and all usage sites
+
+3. **Issue**: ArrayList.init() doesn't exist
+   - Symptom: `struct 'array_list.Aligned(f64,null)' has no member named 'init'`
+   - Root cause: `std.ArrayList` defaulted to Unmanaged in 0.15.1
+   - Resolution: Change initialization to `: std.ArrayList(T) = .{}`
+   - Impact: ALL test and benchmark files will need this change
+
+4. **Issue**: Custom OutputBufferWriter needs migration
+   - Symptom: `std.io.Writer(void, error{BufferFull}, write)` - generic type no longer exists
+   - Root cause: Writer is now a concrete type, not a generic
+   - Status: **Not resolved** - complex custom writer, deferred to next session
+
+5. **Issue**: ansi.zig uses deprecated Writer APIs
+   - Symptom: `adaptToNewApi` and `writeByteNTimes` don't exist
+   - Root cause: Writer interface completely redesigned
+   - Status: **Not resolved** - requires ansi.zig migration (Phase 3)
+
+### Test Results
+
+**Compilation**: ⚠️ IN PROGRESS (8-9 errors remaining)
+
+Remaining compilation errors:
+- `std.fmt.format` needs migration in ansi.zig (uses old writer.adaptToNewApi)
+- `writer.writeByteNTimes` removed from API (ansi.zig:139)
+- `OutputBufferWriter.writer()` returns generic `std.io.Writer` (doesn't exist)
+- Various ArrayList.append() calls in addStatSample() need allocator parameter
+
+**Files affected by remaining errors:**
+- renderer.zig - OutputBufferWriter migration needed
+- ansi.zig - fmt.format and writeByteNTimes APIs
+- Functions using addStatSample() - need to pass allocator
+
+**Progress**: Significant API understanding gained, ~60% of renderer.zig Writer migration complete
+
+### Statistics
+
+- **Files touched**: 3 (build.zig.zon, renderer.zig, lib.zig)
+- **Writer API migrations**: ~30 call sites updated
+- **ArrayList initialization changes**: 7
+- **API replacements**: 3 (getStdOut, sleep, deinit)
+- **Lines changed**: ~80 in renderer.zig alone
+- **New patterns discovered**: 4 (Writer API, ArrayList default, stdlib moves, managed→unmanaged)
+
+### Commits Expected (End of Session)
+
+1. `zig: update uucode to latest 0.15.1 compatible commit`
+2. `zig: migrate renderer.zig Writer API (partial - BufferedWriter migration)`
+3. `zig: fix stdlib API changes (getStdOut, sleep, ArrayList.deinit)`
+4. `zig: update migration tracking (Session 4)`
+
+### Next Session Action
+
+**Remaining Work for Phase 2:**
+
+1. **renderer.zig - Complete migration** (~30-60 min):
+   - Fix `addStatSample()` to accept allocator parameter
+   - Migrate `OutputBufferWriter` to new Writer API (complex - custom writer)
+   - Update all `addStatSample()` call sites to pass allocator
+   - Alternative: Remove OutputBufferWriter if no longer needed
+
+2. **ansi.zig - Writer API migration** (Phase 3 work, ~20-30 min):
+   - Replace `std.fmt.format(writer, ...)` with `writer.print(...)`
+   - Replace `writer.writeByteNTimes()` with manual loop or alternative
+   - Update any other deprecated Writer methods
+
+3. **callconv fixes** (trivial, 2 min):
+   - These were already fixed in a previous commit (not in current session)
+
+**Critical Note for Future Sessions:**
+
+ALL remaining test and benchmark files (24 files) will need:
+- ArrayList initialization: `.init(allocator)` → `: .{}`  
+- ArrayList methods: `.append(item)` → `.append(allocator, item)`
+- ArrayList capacity: `.ensureTotalCapacity(N)` → `.ensureTotalCapacity(allocator, N)`
+
+This is a **breaking semantic change** in Zig 0.15.1 that affects the entire codebase!
+
+**Recommended Next Steps:**
+1. Finish renderer.zig (OutputBufferWriter + addStatSample)
+2. Quick pass through ansi.zig (fmt.format → print)
+3. Run `zig build test` to see full scope of test file errors
+4. Decide: Migrate tests incrementally or batch process ArrayList changes
+
+---
+
+## Migration Statistics (Updated Each Session)
+
+- **Sessions completed**: 4
+- **Files fully migrated**: 8 (2 in Session 2, 6 in Session 3, 0 in Session 4)
+- **Files partially migrated**: 2 (renderer.zig, lib.zig in Session 4)
+- **Major API changes discovered**: 4 (Writer redesign, ArrayList default, stdlib reorganization, managed list deinit)
+- **Tests passing**: Not yet run (compilation incomplete)
+- **Benchmarks passing**: Not yet run
+
