@@ -1337,7 +1337,8 @@ pub fn findGraphemeInfoSIMD16(
     text: []const u8,
     tab_width: u8,
     isASCIIOnly: bool,
-    result: *std.ArrayList(GraphemeInfo),
+    result: *std.ArrayListUnmanaged(GraphemeInfo),
+    allocator: std.mem.Allocator,
 ) !void {
     if (isASCIIOnly) {
         return;
@@ -1377,7 +1378,7 @@ pub fn findGraphemeInfoSIMD16(
                     // Commit previous cluster if it was special (tab or multibyte)
                     if (prev_cp != null and (cluster_is_multibyte or cluster_is_tab)) {
                         const cluster_byte_len = (pos + i) - cluster_start;
-                        try result.append(GraphemeInfo{
+                        try result.append(allocator, GraphemeInfo{
                             .byte_offset = @intCast(cluster_start),
                             .byte_len = @intCast(cluster_byte_len),
                             .width = @intCast(cluster_width_state.width),

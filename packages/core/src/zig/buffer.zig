@@ -135,7 +135,7 @@ pub const OptimizedBuffer = struct {
     grapheme_tracker: gp.GraphemeTracker,
     width_method: utf8.WidthMethod,
     id: []const u8,
-    scissor_stack: std.ArrayList(ClipRect),
+    scissor_stack: std.ArrayListUnmanaged(ClipRect),
 
     const InitOptions = struct {
         respectAlpha: bool = false,
@@ -158,8 +158,8 @@ pub const OptimizedBuffer = struct {
         const owned_id = allocator.dupe(u8, options.id) catch return BufferError.OutOfMemory;
         errdefer allocator.free(owned_id);
 
-        var scissor_stack = std.ArrayList(ClipRect).init(allocator);
-        errdefer scissor_stack.deinit();
+        var scissor_stack: std.ArrayListUnmanaged(ClipRect) = .{};
+        errdefer scissor_stack.deinit(allocator);
 
         self.* = .{
             .buffer = .{
@@ -204,7 +204,7 @@ pub const OptimizedBuffer = struct {
     }
 
     pub fn deinit(self: *OptimizedBuffer) void {
-        self.scissor_stack.deinit();
+        self.scissor_stack.deinit(self.allocator);
         self.grapheme_tracker.deinit();
         self.allocator.free(self.buffer.char);
         self.allocator.free(self.buffer.fg);
@@ -274,7 +274,7 @@ pub const OptimizedBuffer = struct {
             .width = width,
             .height = height,
         };
-        try self.scissor_stack.append(rect);
+        try self.scissor_stack.append(self.allocator, rect);
     }
 
     pub fn popScissorRect(self: *OptimizedBuffer) void {
@@ -673,11 +673,11 @@ pub const OptimizedBuffer = struct {
 
         const is_ascii_only = utf8.isAsciiOnly(text);
 
-        var grapheme_list = std.ArrayList(utf8.GraphemeInfo).init(self.allocator);
-        defer grapheme_list.deinit();
+        var grapheme_list: std.ArrayListUnmanaged(utf8.GraphemeInfo) = .{};
+        defer grapheme_list.deinit(self.allocator);
 
         const tab_width: u8 = 2;
-        try utf8.findGraphemeInfoSIMD16(text, tab_width, is_ascii_only, &grapheme_list);
+        try utf8.findGraphemeInfoSIMD16(text, tab_width, is_ascii_only, &grapheme_list, self.allocator);
         const specials = grapheme_list.items;
 
         var advance_cells: u32 = 0;
