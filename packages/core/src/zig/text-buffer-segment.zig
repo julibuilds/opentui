@@ -153,13 +153,13 @@ pub const TextChunk = struct {
 
         const chunk_bytes = self.getBytes(mem_registry);
 
-        var grapheme_list = std.ArrayList(GraphemeInfo).init(allocator);
-        errdefer grapheme_list.deinit();
+        var grapheme_list: std.ArrayListUnmanaged(GraphemeInfo) = .{};
+        errdefer grapheme_list.deinit(allocator);
 
-        try utf8.findGraphemeInfoSIMD16(chunk_bytes, tabwidth, self.isAsciiOnly(), &grapheme_list);
+        try utf8.findGraphemeInfoSIMD16(chunk_bytes, tabwidth, self.isAsciiOnly(), &grapheme_list, allocator);
 
         // TODO: Calling this with an arena allocator will just double the memory usage?
-        const graphemes = try grapheme_list.toOwnedSlice();
+        const graphemes = try grapheme_list.toOwnedSlice(allocator);
 
         mut_self.graphemes = graphemes;
         return graphemes;
