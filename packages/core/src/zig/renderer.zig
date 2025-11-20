@@ -115,26 +115,19 @@ pub const CliRenderer = struct {
     var outputBufferBLen: usize = 0;
     var activeBuffer: enum { A, B } = .A;
 
-    const OutputBufferWriter = struct {
-        pub fn write(_: void, data: []const u8) !usize {
-            const bufferLen = if (activeBuffer == .A) &outputBufferLen else &outputBufferBLen;
-            const buffer = if (activeBuffer == .A) &outputBuffer else &outputBufferB;
+    fn getOutputBufferWriter() std.io.FixedBufferStream([]u8) {
+        const bufferLen = if (activeBuffer == .A) &outputBufferLen else &outputBufferBLen;
+        const buffer = if (activeBuffer == .A) &outputBuffer else &outputBufferB;
 
-            if (bufferLen.* + data.len > buffer.len) {
-                // TODO: Resize buffer when necessary
-                return error.BufferFull;
-            }
+        var stream = std.io.fixedBufferStream(buffer);
+        stream.pos = bufferLen.*;
+        return stream;
+    }
 
-            @memcpy(buffer.*[bufferLen.*..][0..data.len], data);
-            bufferLen.* += data.len;
-
-            return data.len;
-        }
-
-        pub fn writer() std.io.Writer(void, error{BufferFull}, write) {
-            return .{ .context = {} };
-        }
-    };
+    fn updateOutputBufferLen(stream: *std.io.FixedBufferStream([]u8)) void {
+        const bufferLen = if (activeBuffer == .A) &outputBufferLen else &outputBufferBLen;
+        bufferLen.* = stream.pos;
+    }
 
     pub fn create(allocator: Allocator, width: u32, height: u32, pool: *gp.GraphemePool, testing: bool) !*CliRenderer {
         const self = try allocator.create(CliRenderer);
@@ -342,8 +335,8 @@ pub const CliRenderer = struct {
         std.Thread.sleep(10 * std.time.ns_per_ms);
     }
 
-    fn addStatSample(comptime T: type, samples: *std.ArrayList(T), value: T) void {
-        samples.append(value) catch return;
+    fn addStatSample(comptime T: type, allocator: Allocator, samples: *std.ArrayList(T), value: T) void {
+        samples.append(allocator, value) catch return;
 
         if (samples.items.len > MAX_STAT_SAMPLES) {
             _ = samples.orderedRemove(0);
@@ -393,8 +386,8 @@ pub const CliRenderer = struct {
         self.renderStats.fps = fps;
         self.renderStats.frameCallbackTime = frameCallbackTime;
 
-        addStatSample(f64, &self.statSamples.overallFrameTime, time);
-        addStatSample(f64, &self.statSamples.frameCallbackTime, frameCallbackTime);
+        addStatSample(f64, self.allocator, &self.statSamples.overallFrameTime, time);
+        addStatSample(f64, self.allocator, &self.statSamples.frameCallbackTime, frameCallbackTime);
     }
 
     pub fn updateMemoryStats(self: *CliRenderer, heapUsed: u32, heapTotal: u32, arrayBuffers: u32) void {
@@ -515,17 +508,17 @@ pub const CliRenderer = struct {
         self.renderStats.lastFrameTime = deltaTime * 1000.0;
         self.renderStats.frameCount += 1;
 
-        addStatSample(f64, &self.statSamples.lastFrameTime, deltaTime * 1000.0);
+        addStatSample(f64, self.allocator, &self.statSamples.lastFrameTime, deltaTime * 1000.0);
         if (self.renderStats.renderTime) |rt| {
-            addStatSample(f64, &self.statSamples.renderTime, rt);
+            addStatSample(f64, self.allocator, &self.statSamples.renderTime, rt);
         }
         if (self.renderStats.bufferResetTime) |brt| {
-            addStatSample(f64, &self.statSamples.bufferResetTime, brt);
+            addStatSample(f64, self.allocator, &self.statSamples.bufferResetTime, brt);
         }
         if (self.renderStats.stdoutWriteTime) |swt| {
-            addStatSample(f64, &self.statSamples.stdoutWriteTime, swt);
+            addStatSample(f64, self.allocator, &self.statSamples.stdoutWriteTime, swt);
         }
-        addStatSample(u32, &self.statSamples.cellsUpdated, self.renderStats.cellsUpdated);
+        addStatSample(u32, self.allocator, &self.statSamples.cellsUpdated, self.renderStats.cellsUpdated);
     }
 
     pub fn getNextBuffer(self: *CliRenderer) *OptimizedBuffer {
@@ -546,7 +539,8 @@ pub const CliRenderer = struct {
             outputBufferBLen = 0;
         }
 
-        var writer = OutputBufferWriter.writer();
+        var stream = getOutputBufferWriter();
+        const writer = stream.writer();
 
         writer.writeAll(ansi.ANSI.syncSet) catch {};
         writer.writeAll(ansi.ANSI.hideCursor) catch {};
@@ -731,6 +725,9 @@ pub const CliRenderer = struct {
 
         writer.writeAll(ansi.ANSI.syncReset) catch {};
 
+        // Update the output buffer length after all writes
+        updateOutputBufferLen(&stream);
+
         const renderEndTime = std.time.microTimestamp();
         const renderTime = @as(f64, @floatFromInt(renderEndTime - renderStartTime));
 
@@ -794,7 +791,8 @@ pub const CliRenderer = struct {
         const file = std.fs.cwd().createFile(filename, .{}) catch return;
         defer file.close();
 
-        const writer = file.writer();
+        var buffer: [4096]u8 = undefined;
+        var writer = file.writer(&buffer);
 
         for (0..self.hitGridHeight) |y| {
             for (0..self.hitGridWidth) |x| {
@@ -802,10 +800,11 @@ pub const CliRenderer = struct {
                 const id = self.currentHitGrid[index];
 
                 const char = if (id == 0) '.' else ('0' + @as(u8, @intCast(id % 10)));
-                writer.writeByte(char) catch return;
+                writer.interface.writeByte(char) catch return;
             }
-            writer.writeByte('\n') catch return;
+            writer.interface.writeByte('\n') catch return;
         }
+        writer.interface.flush() catch return;
     }
 
     fn dumpSingleBuffer(self: *CliRenderer, buffer: *OptimizedBuffer, buffer_name: []const u8, timestamp: i64) void {
@@ -820,10 +819,11 @@ pub const CliRenderer = struct {
         const file = std.fs.cwd().createFile(filename, .{}) catch return;
         defer file.close();
 
-        const writer = file.writer();
+        var write_buffer: [4096]u8 = undefined;
+        var writer = file.writer(&write_buffer);
 
-        writer.print("{s} Buffer ({d}x{d}):\n", .{ buffer_name, self.width, self.height }) catch return;
-        writer.writeAll("Characters:\n") catch return;
+        writer.interface.print("{s} Buffer ({d}x{d}):\n", .{ buffer_name, self.width, self.height }) catch return;
+        writer.interface.writeAll("Characters:\n") catch return;
 
         for (0..self.height) |y| {
             for (0..self.width) |x| {
@@ -834,18 +834,19 @@ pub const CliRenderer = struct {
                     } else if (gp.isGraphemeChar(c.char)) {
                         const gid: u32 = gp.graphemeIdFromChar(c.char);
                         const bytes = self.pool.get(gid) catch &[_]u8{};
-                        if (bytes.len > 0) writer.writeAll(bytes) catch return;
+                        if (bytes.len > 0) writer.interface.writeAll(bytes) catch return;
                     } else {
                         var utf8Buf: [4]u8 = undefined;
                         const len = std.unicode.utf8Encode(@intCast(c.char), &utf8Buf) catch 1;
-                        writer.writeAll(utf8Buf[0..len]) catch return;
+                        writer.interface.writeAll(utf8Buf[0..len]) catch return;
                     }
                 } else {
-                    writer.writeByte(' ') catch return;
+                    writer.interface.writeByte(' ') catch return;
                 }
             }
-            writer.writeByte('\n') catch return;
+            writer.interface.writeByte('\n') catch return;
         }
+        writer.interface.flush() catch return;
     }
 
     pub fn dumpStdoutBuffer(self: *CliRenderer, timestamp: i64) void {
@@ -861,24 +862,27 @@ pub const CliRenderer = struct {
         const file = std.fs.cwd().createFile(filename, .{}) catch return;
         defer file.close();
 
-        const writer = file.writer();
+        var write_buffer: [4096]u8 = undefined;
+        var writer = file.writer(&write_buffer);
 
-        writer.print("Stdout Buffer Output (timestamp: {d}):\n", .{timestamp}) catch return;
-        writer.writeAll("Last Rendered ANSI Output:\n") catch return;
-        writer.writeAll("================\n") catch return;
+        writer.interface.print("Stdout Buffer Output (timestamp: {d}):\n", .{timestamp}) catch return;
+        writer.interface.writeAll("Last Rendered ANSI Output:\n") catch return;
+        writer.interface.writeAll("================\n") catch return;
 
         const lastBuffer = if (activeBuffer == .A) &outputBufferB else &outputBuffer;
         const lastLen = if (activeBuffer == .A) outputBufferBLen else outputBufferLen;
 
         if (lastLen > 0) {
-            writer.writeAll(lastBuffer.*[0..lastLen]) catch return;
+            writer.interface.writeAll(lastBuffer.*[0..lastLen]) catch return;
         } else {
-            writer.writeAll("(no output rendered yet)\n") catch return;
+            writer.interface.writeAll("(no output rendered yet)\n") catch return;
         }
+        writer.interface.flush() catch return;
 
-        writer.writeAll("\n================\n") catch return;
-        writer.print("Buffer size: {d} bytes\n", .{lastLen}) catch return;
-        writer.print("Active buffer: {s}\n", .{if (activeBuffer == .A) "A" else "B"}) catch return;
+        writer.interface.writeAll("\n================\n") catch return;
+        writer.interface.print("Buffer size: {d} bytes\n", .{lastLen}) catch return;
+        writer.interface.print("Active buffer: {s}\n", .{if (activeBuffer == .A) "A" else "B"}) catch return;
+        writer.interface.flush() catch return;
     }
 
     pub fn dumpBuffers(self: *CliRenderer, timestamp: i64) void {
