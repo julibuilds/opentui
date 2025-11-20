@@ -475,12 +475,160 @@ This is a **breaking semantic change** in Zig 0.15.1 that affects the entire cod
 
 ---
 
+## Session 5: 2025-11-20 (Phase 2 & 3 Completion)
+
+### Work Completed
+
+**Phase 2 & 3: Final Core Migrations** ✅
+
+Successfully completed all core source file migrations! Build now passes with 0 errors.
+
+- **File**: ansi.zig ✅
+  - **fmt.format migrations** (6 occurrences):
+    - `std.fmt.format(writer, ...)` → `writer.print(...)`
+    - Updated functions: `moveToOutput`, `fgColorOutput`, `bgColorOutput`, `cursorColorOutputWriter`, `explicitWidthOutput`, `setTerminalTitleOutput`
+  - **writeByteNTimes removal** (1 occurrence):
+    - `writer.writeByteNTimes('\n', height - 1)` → manual for loop
+    - New pattern: `for (0..height - 1) |_| { writer.writeByte('\n') }`
+  - Test result: Compiles successfully
+
+- **File**: renderer.zig ✅
+  - **addStatSample migrations**:
+    - Added `allocator: Allocator` parameter to function signature
+    - Updated all 7 call sites to pass `self.allocator`
+    - Fixed: `samples.append(value)` → `samples.append(allocator, value)`
+  
+  - **OutputBufferWriter migration**:
+    - Replaced custom writer struct with `std.io.FixedBufferStream`
+    - New pattern: `getOutputBufferWriter()` returns FixedBufferStream
+    - Added `updateOutputBufferLen()` to sync stream position back to buffer length
+    - Changed: `var stream = getOutputBufferWriter(); const writer = stream.writer();`
+    - Updated after last write: `updateOutputBufferLen(&stream);`
+  
+  - **file.writer() migrations** (3 debug dump functions):
+    - All `file.writer()` calls now require buffer parameter: `file.writer(&buffer)`
+    - Changed `const writer` → `var writer` (interface needs mutable reference)
+    - Updated all calls: `writer.interface.writeByte()`, `writer.interface.print()`, etc.
+    - Added `writer.interface.flush()` before closing files
+    - Functions updated: `dumpHitGrid`, `dumpSingleBuffer`, `dumpStdoutBuffer`
+  
+  - Test result: Compiles successfully
+
+- **File**: lib.zig ✅
+  - No direct changes needed
+  - Compilation fixed by ansi.zig migrations (uses ansi.zig functions)
+  - Test result: Compiles successfully
+
+### Migration Insights
+
+**Pattern 15 Discovered**: FixedBufferStream for Custom Output Buffers
+
+When you need a custom writer that writes to a pre-allocated buffer:
+
+```zig
+// Before (0.14.1) - Custom Writer struct
+const OutputBufferWriter = struct {
+    pub fn write(_: void, data: []const u8) !usize {
+        // manual buffer management
+    }
+    pub fn writer() std.io.Writer(void, error{BufferFull}, write) {
+        return .{ .context = {} };
+    }
+};
+
+// After (0.15.1) - FixedBufferStream
+fn getOutputBufferWriter() std.io.FixedBufferStream([]u8) {
+    var stream = std.io.fixedBufferStream(buffer);  // Note: &buffer not buffer.*
+    stream.pos = currentLen;  // Resume from current position
+    return stream;
+}
+
+// Usage
+var stream = getOutputBufferWriter();
+const writer = stream.writer();
+writer.writeAll(data) catch {};
+updateBufferLen(&stream);  // Sync position back
+```
+
+**Key Learnings**:
+1. `file.writer()` now requires buffer: `file.writer(&buffer)` not `file.writer()`
+2. Writer must be `var` not `const` for mutable `&writer.interface` access
+3. FixedBufferStream.pos tracks current write position
+4. Need to sync position back to length variable after writes
+
+### Issues Encountered
+
+1. **Issue**: `fixedBufferStream(buffer.*)` failed
+   - Symptom: "invalid type given to fixedBufferStream"
+   - Root cause: Function expects slice reference, not dereferenced array
+   - Resolution: Use `buffer` directly, not `buffer.*`
+
+2. **Issue**: `writer.interface` is const pointer
+   - Symptom: "expected type '*Io.Writer', found '*const Io.Writer'"
+   - Root cause: `const writer` creates immutable binding
+   - Resolution: Change to `var writer` for mutable interface access
+
+### Test Results
+
+**Compilation**: ✅ PASS
+
+```bash
+cd packages/core/src/zig
+export PATH="$HOME/.zvm/bin:$PATH"
+zig build
+# Exit code: 0
+# Output: (clean build)
+```
+
+All source files now compile successfully! 🎉
+
+**Phase 2 Complete**: All core data structures migrated
+**Phase 3 Complete**: All I/O & formatting migrated (except rope.zig debug - low priority)
+
+### Statistics
+
+- **Files touched**: 2 (ansi.zig, renderer.zig)
+- **Lines changed**: +60, -54 (renderer.zig), +6, -6 (ansi.zig)
+- **fmt.format migrations**: 6 completed
+- **Writer API migrations**: 13 additional call sites (debug dumps)
+- **Custom writer migrations**: 1 (OutputBufferWriter → FixedBufferStream)
+
+### Commits
+
+1. `zig: complete Phase 2 & 3 - migrate ansi.zig and renderer.zig to 0.15.1`
+2. `zig: update migration status - Phase 2 & 3 complete (Session 5)`
+
+### Next Steps
+
+**Phase 4: Test Files** (14 files, 0 migrated)
+
+Priority order:
+1. Simple tests: grapheme_test.zig, utf8_test.zig, utils_test.zig
+2. Core tests: rope_test.zig, buffer_test.zig
+3. Complex tests: text-buffer_test.zig and related
+
+Main migration pattern needed:
+```zig
+// Old
+var list = std.ArrayList(T).init(allocator);
+defer list.deinit();
+
+// New
+var list: std.ArrayList(T) = .{};
+defer list.deinit(allocator);
+```
+
+All ArrayList methods need allocator parameter added.
+
+---
+
 ## Migration Statistics (Updated Each Session)
 
-- **Sessions completed**: 4
-- **Files fully migrated**: 8 (2 in Session 2, 6 in Session 3, 0 in Session 4)
-- **Files partially migrated**: 2 (renderer.zig, lib.zig in Session 4)
-- **Major API changes discovered**: 4 (Writer redesign, ArrayList default, stdlib reorganization, managed list deinit)
-- **Tests passing**: Not yet run (compilation incomplete)
+- **Sessions completed**: 5
+- **Files fully migrated**: 11 (2 in Session 2, 6 in Session 3, 0 in Session 4, 3 in Session 5)
+- **Files partially migrated**: 0
+- **Major API changes discovered**: 5 (Writer redesign, ArrayList default, stdlib reorganization, managed list deinit, FixedBufferStream pattern)
+- **Build status**: ✅ PASSING (zig build succeeds)
+- **Tests passing**: Not yet run (tests not migrated)
 - **Benchmarks passing**: Not yet run
 
