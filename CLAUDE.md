@@ -8,6 +8,11 @@
 
 ## Quick Start for New Sessions
 
+### Prerequisites
+
+- Use `zvm` CLI tool to ensure Zig version is set to 0.15.1
+- Update path
+
 ### 1. Check Current State (2 min)
 ```bash
 cd packages/core
