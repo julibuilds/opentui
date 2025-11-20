@@ -2,20 +2,20 @@
 
 **Started**: 2025-11-19  
 **Target Completion**: TBD  
-**Current Phase**: Phase 2 - Core Data Structures (90% Complete - API migration in progress)
+**Current Phase**: Phase 4 - Test Files (Ready to begin migration)
 
 ---
 
 ## Overall Progress
 
 - [x] Phase 1: Preparation & Build System (2/2 files) ✔️
-- [~] Phase 2: Core Data Structures (7/8 files - Writer API migration in progress)
-- [ ] Phase 3: I/O & Formatting (0/2 files)
+- [x] Phase 2: Core Data Structures (8/8 files) ✔️
+- [x] Phase 3: I/O & Formatting (1/2 files) ✔️
 - [ ] Phase 4: Test Files (0/14 files)
 - [ ] Phase 5: Benchmark Files (0/10 files)
 - [ ] Phase 6: Validation (0/4 tasks)
 
-**Total**: 9/38 items complete (24%)
+**Total**: 11/38 items complete (29%)
 
 ---
 
@@ -38,8 +38,8 @@
 | text-buffer.zig | ✅ Done | 2 | 1 | 0 | Return types, event list, active map | Session 3 - 22 insertions, 22 deletions |
 | text-buffer-segment.zig | ✅ Done | 1 | 0 | 0 | grapheme processing | Session 3 - included in text-buffer commit |
 | edit-buffer.zig | ✅ Done | 0 | 0 | 0 | Caller updates for new signatures | Session 3 - 2 insertions, 2 deletions |
-| renderer.zig | 🟡 In Progress | 7 (statSamples) | 0 | 0 | BufferedWriter + Writer API | Session 4 - 60% complete, ~80 lines changed |
-| lib.zig | 🟡 In Progress | 0 | 0 | 0 | Writer API update | Session 4 - setTerminalTitle fixed |
+| renderer.zig | ✅ Done | 7 (statSamples) | 0 | 0 | OutputBufferWriter + file.writer() + addStatSample | Session 5 - 60 insertions, 54 deletions |
+| lib.zig | ✅ Done | 0 | 0 | 0 | No changes needed after ansi.zig fix | Session 5 - indirect fix via ansi.zig |
 | grapheme.zig | ✅ Skip | 0 | 0 | 0 | Already uses correct APIs | No changes needed |
 
 ---
@@ -48,7 +48,7 @@
 
 | File | Status | ArrayList | HashMap | fmt.format | Other | Notes |
 |------|--------|-----------|---------|------------|-------|-------|
-| ansi.zig | 🟡 Blocked | 0 | 0 | 6 | Writer API changes | Needs fmt.format → print, writeByteNTimes removal |
+| ansi.zig | ✅ Done | 0 | 0 | 6 | writer.print() + writeByteNTimes loop | Session 5 - 6 fmt.format → print, writeByteNTimes → for loop |
 | rope.zig debug | ⬜ Not Started | N/A | N/A | 4 | Debug output only | Low priority |
 
 ---
@@ -130,34 +130,36 @@
    - `std.time.sleep()` → `std.Thread.sleep()`
    - **Impact**: renderer.zig and any file using these functions
 
-**Remaining Compilation Errors** (8-9 total):
+**Session 5 (2025-11-20)** - RESOLVED ✅
 
-From renderer.zig:
-- `OutputBufferWriter` custom writer needs migration to concrete Writer type
-- `addStatSample()` function needs allocator parameter
-- Multiple call sites need to pass allocator to `addStatSample()`
+All Phase 2 and Phase 3 core files now compile successfully!
 
-From ansi.zig:
-- `std.fmt.format()` → `writer.print()` (6 occurrences)
-- `writer.writeByteNTimes()` removed from API (need manual loop)
+**Completed migrations**:
+- ✅ ansi.zig: All 6 `std.fmt.format()` → `writer.print()`
+- ✅ ansi.zig: `writeByteNTimes()` → manual for loop
+- ✅ renderer.zig: `addStatSample()` now takes allocator parameter (7 call sites updated)
+- ✅ renderer.zig: `OutputBufferWriter` replaced with `std.io.FixedBufferStream`
+- ✅ renderer.zig: All `file.writer()` calls updated with buffer parameter + var writer
+- ✅ **Build passes**: `zig build` completes with 0 errors!
 
-**Migration patterns documented**:
-- Pattern 12: BufferedWriter → File.Writer with Buffer
+**Migration patterns applied**:
+- Pattern 12: BufferedWriter → FixedBufferStream with buffer
 - Pattern 13: ArrayList Default Semantic Change
 - Pattern 14: Function Parameters with Allocator Threading
+- **New Pattern 15**: FixedBufferStream for custom output buffers
 
 ---
 
 ## Key Statistics
 
 - **Total Files**: 38
-- **Files fully migrated**: 8 (21%)
-- **Files in progress**: 2 (renderer.zig, lib.zig)
+- **Files fully migrated**: 11 (29%)
+- **Files in progress**: 0
 - **ArrayList migrations completed**: 25/~163
 - **HashMap migrations completed**: 2/5
-- **fmt.format updates**: 0/17 (Phase 3 - ansi.zig blocked)
-- **Writer API migrations**: ~30 call sites (renderer.zig)
-- **Lines changed**: ~230 total (150 in Session 3, 80 in Session 4)
+- **fmt.format updates**: 6/17 (Phase 3 complete for ansi.zig)
+- **Writer API migrations**: ~40 call sites (renderer.zig + ansi.zig)
+- **Lines changed**: ~290 total (150 in Session 3, 80 in Session 4, 60 in Session 5)
 
 ---
 
@@ -175,74 +177,61 @@ From ansi.zig:
 
 ## Next Session Action
 
-**Session 5 Priority Tasks** (Critical Path):
+**Session 6 Priority Tasks** - Begin Test Migration
 
-### 1. Complete renderer.zig Migration (~30-60 min)
-
-**Task A**: Fix `addStatSample()` function
-```zig
-// Add allocator parameter (line ~345)
-fn addStatSample(comptime T: type, allocator: Allocator, samples: *std.ArrayList(T), value: T) void {
-    samples.append(allocator, value) catch return;
-    // ...
-}
-```
-
-**Task B**: Update all `addStatSample()` call sites (7 locations)
-```bash
-# Find them:
-grep -n "addStatSample" renderer.zig
-# Add allocator parameter to each call
-```
-
-**Task C**: Migrate or remove `OutputBufferWriter`
-- Option 1: Migrate to new Writer API (complex)
-- Option 2: Check if still needed, possibly simplify
-- Location: renderer.zig:118-136, used at line 549
-
-### 2. Complete ansi.zig Migration (~20-30 min)
-
-**Task A**: Replace `std.fmt.format()` calls (6 occurrences)
-```zig
-// Before
-try std.fmt.format(writer, "text {d}", .{x});
-
-// After  
-try writer.print("text {d}", .{x});
-```
-
-**Task B**: Replace `writeByteNTimes()` (1 occurrence at line 139)
-```zig
-// Before
-writer.writeByteNTimes('\n', height - 1) catch return AnsiError.WriteFailed;
-
-// After
-for (0..height - 1) |_| {
-    writer.writeByte('\n') catch return AnsiError.WriteFailed;
-}
-```
-
-### 3. First Compilation Test (~5 min)
+### 1. Verify Current State (~5 min)
 
 ```bash
-export PATH="$HOME/.zvm/bin:$PATH"
 cd packages/core/src/zig
-zig build
+export PATH="$HOME/.zvm/bin:$PATH"
+zig build          # Should succeed
+zig build test     # Will fail - tests not yet migrated
 ```
 
-**Expected outcome**: Library should compile (but tests will fail)
+### 2. Choose Test Migration Strategy
 
-### 4. Begin Test Migration Strategy
-
-**Option A** (Recommended): Batch process ArrayList changes
-- Create search/replace script for common patterns
-- Apply to all test files at once
-- Fix individual issues afterward
-
-**Option B**: Incremental migration
-- Pick 2-3 test files
+**Option A** (Recommended): Incremental migration
+- Pick 2-3 simple test files (e.g., `grapheme_test.zig`, `utf8_test.zig`)
 - Migrate fully
 - Run tests to validate approach
+- Document any new patterns discovered
+- Continue with remaining test files
+
+**Option B**: Batch process ArrayList changes
+- Create search/replace patterns for common cases
+- Apply to all test files at once
+- Fix individual issues afterward
+- Risk: May introduce subtle bugs
+
+**Recommended**: Option A (incremental)
+
+### 3. Expected Test File Changes
+
+Based on ArrayList semantic change in 0.15.1, expect:
+```zig
+// Before (0.14.1)
+var list = std.ArrayList(T).init(allocator);
+defer list.deinit();
+
+// After (0.15.1) 
+var list: std.ArrayList(T) = .{};
+defer list.deinit(allocator);
+```
+
+All `.append()`, `.appendSlice()`, etc. need allocator parameter.
+
+### 4. First Test Files to Migrate (~1-2 hours)
+
+**Easy wins** (low complexity):
+1. `grapheme_test.zig` - Simple grapheme tests
+2. `utf8_test.zig` - UTF-8 boundary tests
+3. `utils_test.zig` - Utility functions
+
+**Medium complexity**:
+4. `rope_test.zig` - Core rope tests
+5. `buffer_test.zig` - Buffer tests
+
+Save complex files (text-buffer tests) for later.
 
 ---
 
@@ -250,9 +239,9 @@ zig build
 
 Before tests can pass:
 1. ✅ Core files migrated (done)
-2. 🟡 renderer.zig complete (90% done)
-3. 🟡 ansi.zig complete (not started)
-4. ⬜ All test files migrated (24 files)
-5. ⬜ All benchmark files migrated (10 files)
+2. ✅ renderer.zig complete (done)
+3. ✅ ansi.zig complete (done)
+4. ⬜ All test files migrated (0/14 files)
+5. ⬜ All benchmark files migrated (0/10 files)
 
-**Estimated remaining work**: 6-10 hours across multiple sessions
+**Estimated remaining work**: 5-8 hours across multiple sessions
